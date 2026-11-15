@@ -1,0 +1,11 @@
+{
+  "name": "تطبيق نِعمة - حفظ النعمة",
+  "short_name": "نِعمة",
+  "description": "تطبيق الهاتف الذكي لحفظ النعمة وربط المطاعم والجمعيات والعوائل المتعففة ومناديب التوصيل",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#059669",
+  "lang": "ar",
+  "dir": "rtl"
+}

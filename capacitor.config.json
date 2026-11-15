@@ -1,0 +1,9 @@
+{
+  "appId": "com.hefzalnaema.app",
+  "appName": "نِعمة - حفظ النعمة",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}

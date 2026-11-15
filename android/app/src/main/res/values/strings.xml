@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">نِعمة - حفظ النعمة</string>
+    <string name="title_activity_main">نِعمة - حفظ النعمة</string>
+    <string name="package_name">com.hefzalnaema.app</string>
+    <string name="custom_url_scheme">com.hefzalnaema.app</string>
+</resources>

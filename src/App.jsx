@@ -23,7 +23,9 @@ import {
   Smartphone,
   Monitor,
   LayoutGrid,
-  ChevronLeft
+  ChevronLeft,
+  Pencil,
+  Trash2
 } from 'lucide-react';
 import {
   INITIAL_LISTINGS,
@@ -42,10 +44,35 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [listings, setListings] = useState(INITIAL_LISTINGS);
   const [familyNeeds, setFamilyNeeds] = useState(INITIAL_FAMILY_NEEDS);
+  const [recipients, setRecipients] = useState(() => {
+    try {
+      const saved = localStorage.getItem('neama_recipients_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return VERIFIED_RECIPIENTS;
+  });
+
   const [selectedListing, setSelectedListing] = useState(null); // QR Modal
   const [showCertificateModal, setShowCertificateModal] = useState(false);
   const [showAddFamilyModal, setShowAddFamilyModal] = useState(false);
+  const [showManageRecipientsModal, setShowManageRecipientsModal] = useState(false);
   const [notification, setNotification] = useState(null);
+
+  // Edit / Add Receiving Organization or Institution
+  const [editingRecipientId, setEditingRecipientId] = useState(null);
+  const [editingRecipientName, setEditingRecipientName] = useState('');
+  const [editingRecipientCategory, setEditingRecipientCategory] = useState('');
+  const [editingRecipientDistrict, setEditingRecipientDistrict] = useState('');
+  const [newRecipient, setNewRecipient] = useState({
+    name: '',
+    category: 'جمعية / مؤسسة خيرية',
+    district: 'حي الياسمين',
+  });
 
   // Pre-selected recipient & delivery mode per listing
   const [recipientSelections, setRecipientSelections] = useState({});
@@ -61,7 +88,7 @@ export default function App() {
     providerName: '',
     providerType: 'مطعم / كافيه',
     modelType: 'charity',
-    preselectedRecipient: VERIFIED_RECIPIENTS[0].name,
+    preselectedRecipient: recipients[0]?.name || VERIFIED_RECIPIENTS[0].name,
     quantity: '',
     weightKg: 10,
     originalPrice: 50,
@@ -82,9 +109,18 @@ export default function App() {
     membersCount: 5,
     district: 'حي الياسمين',
     neededMeal: '',
-    verifiedBy: 'جمعية إطعام الخيرية بالحي',
+    verifiedBy: 'تسجيل مباشر من العائلة المحتاجة نفسها',
     preferredPickupMode: 'courier',
   });
+
+  // Persist recipients changes to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('neama_recipients_v1', JSON.stringify(recipients));
+    } catch {
+      // ignore storage errors
+    }
+  }, [recipients]);
 
   // Live countdown every minute
   useEffect(() => {
@@ -102,6 +138,95 @@ export default function App() {
   const showToast = (msg, type = 'success') => {
     setNotification({ msg, type });
     setTimeout(() => setNotification(null), 4000);
+  };
+
+  // Start editing a receiving organization/entity
+  const startEditRecipient = (rec) => {
+    setEditingRecipientId(rec.id);
+    setEditingRecipientName(rec.name);
+    setEditingRecipientCategory(rec.category);
+    setEditingRecipientDistrict(rec.district);
+  };
+
+  // Save edited organization name (also updates listings using the old name)
+  const handleSaveRecipientEdit = (e) => {
+    e.preventDefault();
+    const trimmedName = editingRecipientName.trim();
+    if (!trimmedName) {
+      showToast('يرجى كتابة اسم المؤسسة أو الجهة المستلمة!', 'error');
+      return;
+    }
+
+    const oldRec = recipients.find((r) => r.id === editingRecipientId);
+    const oldName = oldRec?.name;
+
+    setRecipients((prev) =>
+      prev.map((rec) =>
+        rec.id === editingRecipientId
+          ? {
+              ...rec,
+              name: trimmedName,
+              category: editingRecipientCategory.trim() || rec.category,
+              district: editingRecipientDistrict.trim() || rec.district,
+            }
+          : rec
+      )
+    );
+
+    if (oldName && oldName !== trimmedName) {
+      setListings((prev) =>
+        prev.map((item) => ({
+          ...item,
+          preselectedRecipient:
+            item.preselectedRecipient === oldName ? trimmedName : item.preselectedRecipient,
+          reservedBy: item.reservedBy === oldName ? trimmedName : item.reservedBy,
+        }))
+      );
+      if (newItem.preselectedRecipient === oldName) {
+        setNewItem((prev) => ({ ...prev, preselectedRecipient: trimmedName }));
+      }
+      setRecipientSelections((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((k) => {
+          if (next[k] === oldName) next[k] = trimmedName;
+        });
+        return next;
+      });
+    }
+
+    setEditingRecipientId(null);
+    showToast(`تم تعديل اسم المؤسسة/الجهة المستلمة إلى "${trimmedName}" بنجاح!`);
+  };
+
+  // Add a new receiving organization/entity
+  const handleAddRecipient = (e) => {
+    e.preventDefault();
+    const trimmedName = newRecipient.name.trim();
+    if (!trimmedName) {
+      showToast('يرجى إدخال اسم المؤسسة أو الجهة المستلمة!', 'error');
+      return;
+    }
+    const createdRec = {
+      id: `REC-${Date.now().toString().slice(-4)}`,
+      name: trimmedName,
+      type: 'charity',
+      category: newRecipient.category.trim() || 'مؤسسة / جهة خيرية',
+      district: newRecipient.district.trim() || 'الحي',
+      preferredMode: 'courier',
+    };
+    setRecipients((prev) => [createdRec, ...prev]);
+    setNewRecipient({ name: '', category: 'جمعية / مؤسسة خيرية', district: 'حي الياسمين' });
+    showToast(`تمت إضافة "${createdRec.name}" إلى قائمة الجهات المستلمة للتبرعات!`);
+  };
+
+  // Delete a receiving organization
+  const handleDeleteRecipient = (id) => {
+    if (recipients.length <= 1) {
+      showToast('يجب أن تبقى جهة واحدة مستلمة على الأقل في القائمة.', 'error');
+      return;
+    }
+    setRecipients((prev) => prev.filter((r) => r.id !== id));
+    showToast('تم حذف الجهة من القائمة.');
   };
 
   // Filtered listings
@@ -124,6 +249,7 @@ export default function App() {
       recipientSelections[listing.id] ||
       listing.reservedBy ||
       listing.preselectedRecipient ||
+      recipients[0]?.name ||
       VERIFIED_RECIPIENTS[0].name
     );
   };
@@ -259,7 +385,7 @@ export default function App() {
       pickupWindow: newItem.pickupWindow,
       verificationCode: generatedCode,
       status: 'available',
-      preselectedRecipient: newItem.preselectedRecipient || VERIFIED_RECIPIENTS[0].name,
+      preselectedRecipient: newItem.preselectedRecipient || recipients[0]?.name || VERIFIED_RECIPIENTS[0].name,
       reservedBy: null,
       assignedDriver: null,
     };
@@ -270,7 +396,7 @@ export default function App() {
     setActiveTab('explore');
   };
 
-  // Add Family Need
+  // Add Family Need (can be submitted directly by the Needy Family or via Charity/Volunteer)
   const handleAddFamilyNeed = (e) => {
     e.preventDefault();
     const createdNeed = {
@@ -289,9 +415,21 @@ export default function App() {
       status: 'waiting',
     };
     setFamilyNeeds([createdNeed, ...familyNeeds]);
+
+    // Also make this family available in the recipients list so meals can be reserved for them directly
+    const familyRecipientEntry = {
+      id: createdNeed.id,
+      name: `${createdNeed.familyCode} (${createdNeed.membersCount} أفراد)`,
+      type: 'charity',
+      category: 'طلب عائلة محتاجة مسجل',
+      district: createdNeed.district,
+      preferredMode: createdNeed.preferredPickupMode,
+    };
+    setRecipients((prev) => [familyRecipientEntry, ...prev]);
+
     setNewFamilyNeed({ ...newFamilyNeed, familyCode: '', neededMeal: '' });
     setShowAddFamilyModal(false);
-    showToast(`تم تسجيل احتياج (${createdNeed.familyCode}) في ${createdNeed.district} بنجاح!`);
+    showToast(`تم تسجيل طلب العائلة (${createdNeed.familyCode}) في ${createdNeed.district} وإضافتها لقائمة المستلمين!`);
   };
 
   // Match family with an available meal
@@ -451,6 +589,24 @@ export default function App() {
                 <p className="text-xs text-emerald-100/90 leading-relaxed">
                   كل قسم يحمل شعاراً واضحاً يربط المتبرع والجمعية الخيرية والمندوب بالعائلة المحتاجة بكل سهولة.
                 </p>
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowManageRecipientsModal(true)}
+                    className="py-2 px-2.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-amber-300" />
+                    <span>تعديل أسماء المؤسسات</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddFamilyModal(true)}
+                    className="py-2 px-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-sm transition-all"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    <span>تسجيل طلب عائلة</span>
+                  </button>
+                </div>
               </div>
 
               {/* 4 Big Emblem Cards for Mobile Touch */}
@@ -585,18 +741,28 @@ export default function App() {
           {activeTab === 'explore' && (
             <div className="space-y-3.5">
               {/* Section Header Emblem */}
-              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                  <Building2 className="w-6 h-6" />
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3.5 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                    <Building2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-black text-emerald-950">
+                      قسم الجمعية الخيرية وحجز الوجبات
+                    </h2>
+                    <p className="text-[11px] text-emerald-800">
+                      حدد المؤسسة أو العائلة المستلمة وطريقة الاستلام
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-sm font-black text-emerald-950">
-                    قسم الجمعية الخيرية وحجز الوجبات
-                  </h2>
-                  <p className="text-[11px] text-emerald-800">
-                    حدد العائلة المستلمة وطريقة الاستلام (توصيل بمندوب أو استلام مباشر من العائلة)
-                  </p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowManageRecipientsModal(true)}
+                  className="px-2.5 py-2 rounded-xl bg-white border border-emerald-300 text-emerald-800 font-extrabold text-[11px] shrink-0 flex items-center gap-1 shadow-sm hover:bg-emerald-100"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>تعديل المؤسسات</span>
+                </button>
               </div>
 
               {/* Search & Quick Filter Pills */}
@@ -673,11 +839,23 @@ export default function App() {
                     {/* Pre-selected Recipient & Delivery Mode Box */}
                     <div className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2.5 text-xs">
                       <div>
-                        <label className="block font-extrabold text-emerald-950 mb-1">
-                          {item.status === 'available'
-                            ? '1. حدد المستلم (ليكون معروفاً لدى المتبرع):'
-                            : 'المستلم المعتمد لدى المتبرع:'}
-                        </label>
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <label className="font-extrabold text-emerald-950">
+                            {item.status === 'available'
+                              ? '1. حدد المستلم (ليكون معروفاً لدى المتبرع):'
+                              : 'المستلم المعتمد لدى المتبرع:'}
+                          </label>
+                          {item.status === 'available' && (
+                            <button
+                              type="button"
+                              onClick={() => setShowManageRecipientsModal(true)}
+                              className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 flex items-center gap-1 underline"
+                            >
+                              <Pencil className="w-3 h-3" />
+                              <span>تعديل / إضافة جهة</span>
+                            </button>
+                          )}
+                        </div>
                         {item.status === 'available' ? (
                           <select
                             value={getSelectedRecipient(item)}
@@ -689,7 +867,7 @@ export default function App() {
                             }
                             className="w-full px-3 py-2 rounded-xl border border-emerald-300 bg-white font-bold text-emerald-900 text-xs"
                           >
-                            {VERIFIED_RECIPIENTS.map((rec) => (
+                            {recipients.map((rec) => (
                               <option key={rec.id} value={rec.name}>
                                 {rec.name} ({rec.district})
                               </option>
@@ -1000,9 +1178,19 @@ export default function App() {
 
                 {/* Pre-select Recipient */}
                 <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200">
-                  <label className="block font-extrabold text-emerald-950 mb-1">
-                    تحديد المستلم مسبقاً (الجمعية أو العائلة المستفيدة):
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <label className="font-extrabold text-emerald-950">
+                      تحديد المستلم مسبقاً (الجمعية أو العائلة المستفيدة):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowManageRecipientsModal(true)}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 flex items-center gap-1 underline"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      <span>تعديل / إضافة مؤسسة</span>
+                    </button>
+                  </div>
                   <select
                     value={newItem.preselectedRecipient}
                     onChange={(e) =>
@@ -1010,7 +1198,7 @@ export default function App() {
                     }
                     className="w-full px-3 py-2 rounded-xl border border-emerald-300 bg-white font-bold text-emerald-900"
                   >
-                    {VERIFIED_RECIPIENTS.map((rec) => (
+                    {recipients.map((rec) => (
                       <option key={rec.id} value={rec.name}>
                         {rec.name} ({rec.district})
                       </option>
@@ -1381,9 +1569,12 @@ export default function App() {
         {/* MODAL: ADD NEEDY FAMILY */}
         {showAddFamilyModal && (
           <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl max-w-sm w-full p-5 border border-slate-200 shadow-2xl space-y-3 text-xs">
+            <div className="bg-white rounded-3xl max-w-sm w-full p-5 border border-slate-200 shadow-2xl space-y-3 text-xs max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                <h3 className="font-black text-sm text-slate-900">تسجيل احتياج عائلة متعففة</h3>
+                <div>
+                  <h3 className="font-black text-sm text-slate-900">تسجيل طلب واحتياج عائلة</h3>
+                  <p className="text-[11px] text-slate-500">يمكن للعائلة أو الجمعية تسجيل الطلب مباشرة</p>
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowAddFamilyModal(false)}
@@ -1395,7 +1586,7 @@ export default function App() {
 
               <form onSubmit={handleAddFamilyNeed} className="space-y-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">رمز / اسم ملف العائلة *</label>
+                  <label className="block font-bold text-slate-700 mb-1">اسم العائلة أو رمز الملف السري *</label>
                   <input
                     type="text"
                     required
@@ -1403,7 +1594,7 @@ export default function App() {
                     onChange={(e) =>
                       setNewFamilyNeed({ ...newFamilyNeed, familyCode: e.target.value })
                     }
-                    placeholder="مثال: أسرة متعففة (ملف #610)"
+                    placeholder="مثال: عائلة أم خالد / ملف #610"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200"
                   />
                 </div>
@@ -1434,7 +1625,7 @@ export default function App() {
                   </div>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">الوجبات المطلوبة *</label>
+                  <label className="block font-bold text-slate-700 mb-1">الوجبات أو الاحتياجات المطلوبة *</label>
                   <input
                     type="text"
                     required
@@ -1442,9 +1633,29 @@ export default function App() {
                     onChange={(e) =>
                       setNewFamilyNeed({ ...newFamilyNeed, neededMeal: e.target.value })
                     }
-                    placeholder="مثال: 5 وجبات عشاء ساخنة"
+                    placeholder="مثال: 5 وجبات عشاء ساخنة أو سلة غذائية"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200"
                   />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">مُقدّم الطلب / جهة التوثيق</label>
+                  <select
+                    value={newFamilyNeed.verifiedBy}
+                    onChange={(e) =>
+                      setNewFamilyNeed({ ...newFamilyNeed, verifiedBy: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white font-bold text-slate-800"
+                  >
+                    <option value="تسجيل مباشر من العائلة المحتاجة نفسها">
+                      تسجيل مباشر من العائلة المحتاجة نفسها
+                    </option>
+                    <option value="جمعية إطعام الخيرية بالحي">
+                      جمعية إطعام الخيرية بالحي
+                    </option>
+                    <option value="مندوب / متطوع الحي المعتمد">
+                      مندوب / متطوع الحي المعتمد
+                    </option>
+                  </select>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">طريقة الاستلام المفضلة</label>
@@ -1466,9 +1677,158 @@ export default function App() {
                   type="submit"
                   className="w-full py-2.5 rounded-xl bg-rose-600 text-white font-black"
                 >
-                  حفظ وتوثيق الاحتياج
+                  حفظ وإرسال الطلب
                 </button>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: MANAGE / EDIT RECEIVING ORGANIZATIONS & ENTITIES */}
+        {showManageRecipientsModal && (
+          <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-5 border border-slate-200 shadow-2xl space-y-4 text-xs max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 shrink-0">
+                <div>
+                  <h3 className="font-black text-sm text-slate-900">
+                    إدارة وتعديل أسماء المؤسسات والجهات المستلمة
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    عدّل اسم أي مؤسسة أو أضف جهة جديدة لاستلام التبرعات
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowManageRecipientsModal(false);
+                    setEditingRecipientId(null);
+                  }}
+                  className="p-1.5 rounded-xl bg-slate-100 text-slate-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Add New Organization Form */}
+              <form
+                onSubmit={handleAddRecipient}
+                className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2 shrink-0"
+              >
+                <span className="font-extrabold text-emerald-950 block">
+                  + إضافة مؤسسة أو جهة مستلمة جديدة:
+                </span>
+                <input
+                  type="text"
+                  required
+                  value={newRecipient.name}
+                  onChange={(e) => setNewRecipient({ ...newRecipient, name: e.target.value })}
+                  placeholder="اكتب اسم المؤسسة / الجمعية الجديدة..."
+                  className="w-full px-3 py-2 rounded-xl border border-emerald-300 bg-white font-bold"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={newRecipient.category}
+                    onChange={(e) => setNewRecipient({ ...newRecipient, category: e.target.value })}
+                    placeholder="التصنيف (جمعية / مؤسسة)"
+                    className="w-full px-3 py-1.5 rounded-xl border border-emerald-200 bg-white"
+                  />
+                  <input
+                    type="text"
+                    value={newRecipient.district}
+                    onChange={(e) => setNewRecipient({ ...newRecipient, district: e.target.value })}
+                    placeholder="الحي / المنطقة"
+                    className="w-full px-3 py-1.5 rounded-xl border border-emerald-200 bg-white"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black"
+                >
+                  إضافة للقائمة
+                </button>
+              </form>
+
+              {/* Existing Organizations List with Edit/Delete */}
+              <div className="overflow-y-auto space-y-2 pr-0.5 flex-1">
+                {recipients.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2"
+                  >
+                    {editingRecipientId === rec.id ? (
+                      <form onSubmit={handleSaveRecipientEdit} className="space-y-2">
+                        <input
+                          type="text"
+                          required
+                          value={editingRecipientName}
+                          onChange={(e) => setEditingRecipientName(e.target.value)}
+                          placeholder="اسم المؤسسة أو الجهة"
+                          className="w-full px-3 py-1.5 rounded-xl border border-emerald-400 bg-white font-bold"
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            value={editingRecipientCategory}
+                            onChange={(e) => setEditingRecipientCategory(e.target.value)}
+                            placeholder="التصنيف"
+                            className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white"
+                          />
+                          <input
+                            type="text"
+                            value={editingRecipientDistrict}
+                            onChange={(e) => setEditingRecipientDistrict(e.target.value)}
+                            placeholder="الحي"
+                            className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="submit"
+                            className="flex-1 py-1.5 rounded-xl bg-emerald-600 text-white font-bold"
+                          >
+                            حفظ التعديل
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingRecipientId(null)}
+                            className="px-3 py-1.5 rounded-xl bg-slate-200 text-slate-700 font-bold"
+                          >
+                            إلغاء
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-extrabold text-slate-900">{rec.name}</div>
+                          <div className="text-[11px] text-slate-500">
+                            {rec.category} • {rec.district}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => startEditRecipient(rec)}
+                            className="p-2 rounded-xl bg-white border border-slate-200 text-emerald-700 hover:bg-emerald-50"
+                            title="تعديل الاسم"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRecipient(rec.id)}
+                            className="p-2 rounded-xl bg-white border border-slate-200 text-rose-600 hover:bg-rose-50"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
